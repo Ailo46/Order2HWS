@@ -16,14 +16,14 @@ class Customer extends Model
         'name',
         'is_active',
 
-        // Business
+        // Business Classification
         'customer_type_id',
         'price_level_id',
 
         // Pricing
         'default_discount_percent',
 
-        // Contact
+        // Contact Information
         'contact_name',
         'phone',
         'mobile',
