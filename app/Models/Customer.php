@@ -11,15 +11,29 @@ class Customer extends Model
     use SoftDeletes;
 
     protected $fillable = [
+        // Identity
         'code',
         'name',
         'is_active',
-        'notes',
 
+        // Business
         'customer_type_id',
         'price_level_id',
 
+        // Pricing
         'default_discount_percent',
+
+        // Contact
+        'contact_name',
+        'phone',
+        'mobile',
+        'email',
+
+        // Address
+        'address',
+
+        // Notes
+        'notes',
     ];
 
     protected function casts(): array

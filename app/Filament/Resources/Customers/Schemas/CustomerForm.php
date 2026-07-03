@@ -6,6 +6,7 @@ use Filament\Schemas\Schema;
 use Filament\Schemas\Components\Section;
 
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\Select;
 
@@ -66,6 +67,43 @@ class CustomerForm
                             ->minValue(0)
                             ->maxValue(100)
                             ->suffix('%'),
+                    ])
+                    ->columns(1),
+                
+                Section::make('Contact Information')
+                    ->schema([
+                        TextInput::make('contact_name')
+                            ->label('Contact Name')
+                            ->maxLength(255),
+
+                        TextInput::make('phone')
+                            ->label('Phone')
+                            ->tel()
+                            ->maxLength(30),
+
+                        TextInput::make('mobile')
+                            ->label('Mobile')
+                            ->tel()
+                            ->maxLength(30),
+
+                        TextInput::make('email')
+                            ->label('Email')
+                            ->email()
+                            ->maxLength(255),
+                    ])
+                    ->columns(2),
+
+                Section::make('Address Information')
+                    ->schema([
+                        Textarea::make('address')
+                            ->label('Address')
+                            ->rows(3)
+                            ->columnSpanFull(),
+
+                        Textarea::make('notes')
+                            ->label('Notes')
+                            ->rows(3)
+                            ->columnSpanFull(),
                     ])
                     ->columns(1),
             ]);
