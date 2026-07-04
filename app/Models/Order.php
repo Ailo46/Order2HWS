@@ -3,33 +3,27 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Order extends Model
 {
-    use SoftDeletes;
-
     protected $fillable = [
 
-        'order_number',
-
         'customer_id',
-        'sales_agent_id',
 
         'status',
 
         'subtotal',
+
         'discount_total',
+
         'vat_total',
+
         'grand_total',
 
-        'customer_note',
-        'internal_note',
+        'notes',
 
-        'submitted_at',
-        'confirmed_at',
-        'delivered_at',
     ];
 
     protected function casts(): array
@@ -44,11 +38,6 @@ class Order extends Model
 
             'grand_total' => 'decimal:2',
 
-            'submitted_at' => 'datetime',
-
-            'confirmed_at' => 'datetime',
-
-            'delivered_at' => 'datetime',
         ];
     }
 
@@ -57,8 +46,8 @@ class Order extends Model
         return $this->belongsTo(Customer::class);
     }
 
-    public function salesAgent(): BelongsTo
+    public function items(): HasMany
     {
-        return $this->belongsTo(User::class,'sales_agent_id');
+        return $this->hasMany(OrderItem::class);
     }
 }
