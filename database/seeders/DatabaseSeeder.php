@@ -17,8 +17,11 @@ class DatabaseSeeder extends Seeder
         $this->call([
             RolesAndPermissionsSeeder::class,
             AdminUserSeeder::class,
+
             CustomerTypeSeeder::class,
             PriceLevelSeeder::class,
+
+            SizeUnitSeeder::class,
         ]);
     }
 }
