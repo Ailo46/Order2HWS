@@ -9,7 +9,7 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Schema;
 
-class UnitForm
+class SizeUnitForm
 {
     public static function configure(Schema $schema): Schema
     {

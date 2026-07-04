@@ -12,7 +12,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\TrashedFilter;
 use Filament\Tables\Table;
 
-class BrandsTable
+class CategoriesTable
 {
     public static function configure(Table $table): Table
     {

@@ -9,7 +9,7 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Schema;
 
-class BrandForm
+class CategoryForm
 {
     public static function configure(Schema $schema): Schema
     {
