@@ -12,63 +12,32 @@ return new class extends Migration
 
             $table->id();
 
-            // -------------------------------------------------
-            // Relations
-            // -------------------------------------------------
+            $table->foreignId('order_id')
+                ->constrained()
+                ->cascadeOnDelete();
 
-            $table->foreignId('order_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('product_id')
+                ->constrained()
+                ->cascadeOnUpdate();
 
-            $table->foreignId('product_id')->nullable()->constrained();
+            $table->json('product_snapshot');
 
-            // -------------------------------------------------
-            // Product Snapshot
-            // -------------------------------------------------
-
-            $table->string('product_code');
-
-            $table->string('product_name');
-
-            $table->string('brand_name');
-
-            $table->string('category_name');
-
-            // -------------------------------------------------
-            // Packaging Snapshot
-            // -------------------------------------------------
-
-            $table->string('unit_name');
-
-            $table->unsignedInteger('qty_per_pack');
-
-            $table->decimal('size',10,2);
-
-            $table->string('size_unit');
-
-            // -------------------------------------------------
-            // Order Values
-            // -------------------------------------------------
-
-            $table->integer('quantity');
-
-            $table->boolean('sold_as_unit')->default(false);
-
-            // -------------------------------------------------
-            // Pricing Snapshot
-            // -------------------------------------------------
+            $table->decimal('quantity',10,2);
 
             $table->decimal('unit_price',10,2);
 
             $table->decimal('discount_percent',5,2)->default(0);
 
+            $table->decimal('discount_amount',10,2)->default(0);
+
             $table->decimal('vat_percent',5,2)->default(0);
+
+            $table->decimal('vat_amount',10,2)->default(0);
 
             $table->decimal('line_total',10,2);
 
-            // -------------------------------------------------
-            // System
-            // -------------------------------------------------
-
             $table->timestamps();
+
         });
     }
 
