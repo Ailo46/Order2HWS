@@ -16,8 +16,6 @@ class RolesAndPermissionsSeeder extends Seeder
             'Administrator',
             'Sales Manager',
             'Sales Agent',
-            'Cash & Carry Customer',
-            'End Consumer',
         ];
 
         foreach ($roles as $role) {
