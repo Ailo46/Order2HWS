@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Customers\Schemas;
 
 use Filament\Schemas\Schema;
 use Filament\Schemas\Components\Section;
+use App\Support\Roles;
 
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
@@ -55,8 +56,25 @@ class CustomerForm
                             ->searchable()
                             ->preload()
                             ->required(),
+                        
+                        Select::make('sales_agent_id')
+                            ->label('Sales Agent')
+                            ->relationship(
+                                name: 'salesAgent',
+                                titleAttribute: 'name',
+                                modifyQueryUsing: fn ($query) =>
+                                    $query->role(Roles::SALES_AGENT)->orderBy('name')
+                            )
+                            ->searchable()
+                            ->preload()
+                            ->visible(fn () =>
+                                auth()->user()->hasAnyRole([
+                                    Roles::ADMIN,
+                                    Roles::SALES_MANAGER,
+                                ])
+                            ),
                     ])
-                    ->columns(2),
+                    ->columns(3),
                 
                 Section::make('Pricing')
                     ->schema([

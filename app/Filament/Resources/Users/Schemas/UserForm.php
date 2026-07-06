@@ -11,6 +11,7 @@ use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\Select;
 
 use Spatie\Permission\Models\Role;
+use App\Support\Roles;
 
 class UserForm
 {
@@ -27,16 +28,19 @@ class UserForm
                             ->required()
                             ->maxLength(255),
 
+                        TextInput::make('agent_code')
+                            ->label('Agent Code')
+                            ->maxLength(2)
+                            ->minLength(2)
+                            ->unique(ignoreRecord: true)
+                            ->helperText('Two-digit code'),
+
                         TextInput::make('email')
                             ->label('Email')
                             ->email()
                             ->required()
                             ->unique(ignoreRecord: true)
                             ->maxLength(255),
-
-                        Toggle::make('is_active')
-                            ->label('Active')
-                            ->default(true),
 
                     ])
                     ->columns(3),
@@ -86,9 +90,15 @@ class UserForm
                             ->label('Role')
                             ->relationship('roles', 'name')
                             ->preload()
-                            ->searchable(),
+                            ->searchable()
+                            ->live(),
 
-                    ]),
+                        Toggle::make('is_active')
+                            ->label('Active')
+                            ->default(true),
+
+                    ])
+                    ->columns(2),
             ]);
     }
 }
