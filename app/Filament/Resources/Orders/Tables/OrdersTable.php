@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\Orders\Tables;
 
+use App\Models\Order;
+use App\Support\Roles;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -27,6 +29,28 @@ class OrdersTable
                     ->searchable()
                     ->sortable(),
 
+                TextColumn::make('agent_name')
+                    ->label('Sales Agent')
+                    ->searchable()
+                    ->toggleable()
+                    ->visible(fn () =>
+                        auth()->user()?->hasAnyRole([
+                            Roles::ADMIN,
+                            Roles::SALES_MANAGER,
+                        ])
+                    ),
+
+                TextColumn::make('agent_code')
+                    ->label('Code')
+                    ->badge()
+                    ->toggleable()
+                    ->visible(fn () =>
+                        auth()->user()?->hasAnyRole([
+                            Roles::ADMIN,
+                            Roles::SALES_MANAGER,
+                        ])
+                    ),
+
                 TextColumn::make('status')
                     ->badge(),
 
@@ -48,13 +72,48 @@ class OrdersTable
             ])
 
             ->recordActions([
-                EditAction::make(),
+
+                EditAction::make()
+                    ->visible(function (Order $record): bool {
+
+                        $user = auth()->user();
+
+                        if (! $user) {
+                            return false;
+                        }
+
+                        if ($user->hasAnyRole([
+                            Roles::ADMIN,
+                            Roles::SALES_MANAGER,
+                        ])) {
+                            return true;
+                        }
+
+                        if ($user->hasRole(Roles::SALES_AGENT)) {
+
+                            return $record->created_by === $user->id
+                                && $record->status === 'draft';
+                        }
+
+                        return false;
+                    }),
+
             ])
 
             ->toolbarActions([
+
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+
+                    DeleteBulkAction::make()
+                        ->visible(fn () =>
+                            auth()->user()?->hasAnyRole([
+                                Roles::ADMIN,
+                                Roles::SALES_MANAGER,
+                            ])
+                        ),
+
                 ]),
+
             ]);
     }
 }

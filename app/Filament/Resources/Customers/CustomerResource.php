@@ -59,6 +59,19 @@ class CustomerResource extends Resource
             ]);
     }
 
+    public static function getEloquentQuery(): Builder
+    {
+        $query = parent::getEloquentQuery();
+
+        $user = auth()->user();
+
+        if ($user?->hasRole(Roles::SALES_AGENT)) {
+            return $query->where('sales_agent_id', $user->id);
+        }
+
+        return $query;
+    }
+
     public static function canAccess(): bool
     {
         return auth()->user()?->hasAnyRole([
