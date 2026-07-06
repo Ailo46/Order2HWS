@@ -2,12 +2,15 @@
 
 namespace App\Filament\Resources\Orders\Schemas;
 
+use App\Models\Customer;
+use App\Support\Roles;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
+use Illuminate\Database\Eloquent\Builder;
 
 class OrderForm
 {
@@ -24,7 +27,31 @@ class OrderForm
 
                                 Select::make('customer_id')
                                     ->label('Customer')
-                                    ->relationship('customer', 'name')
+                                    ->relationship(
+                                        name: 'customer',
+                                        titleAttribute: 'name',
+                                        modifyQueryUsing: function (Builder $query) {
+
+                                            $user = auth()->user();
+
+                                            if (
+                                                $user->hasAnyRole([
+                                                    Roles::ADMIN,
+                                                    Roles::SALES_MANAGER,
+                                                ])
+                                            ) {
+                                                return;
+                                            }
+
+                                            if ($user->hasRole(Roles::SALES_AGENT)) {
+
+                                                $query->where(
+                                                    'sales_agent_id',
+                                                    $user->id,
+                                                );
+                                            }
+                                        },
+                                    )
                                     ->searchable()
                                     ->preload()
                                     ->required(),
@@ -64,5 +91,13 @@ class OrderForm
                     ]),
 
             ]);
+    }
+
+    public static function canAccess(): bool
+    {
+        return auth()->user()?->hasAnyRole([
+            Roles::ADMIN,
+            Roles::SALES_MANAGER,
+        ]) ?? false;
     }
 }

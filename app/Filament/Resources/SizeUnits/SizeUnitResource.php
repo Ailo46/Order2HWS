@@ -9,16 +9,21 @@ use App\Filament\Resources\SizeUnits\Schemas\SizeUnitForm;
 use App\Filament\Resources\SizeUnits\Tables\SizeUnitsTable;
 use App\Models\SizeUnit;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Resources\BaseResource;
+use App\Support\Roles;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 
-class SizeUnitResource extends Resource
+class SizeUnitResource extends BaseResource
 {
     protected static ?string $model = SizeUnit::class;
+
+    protected static array $allowedRoles = [
+        Roles::ADMIN,
+    ];
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
 

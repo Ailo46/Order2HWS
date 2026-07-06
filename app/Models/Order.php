@@ -10,6 +10,9 @@ class Order extends Model
 {
     protected $fillable = [
         'customer_id',
+        'created_by',
+        'agent_name',
+        'agent_code',
         'order_date',
         'requested_delivery_date',
         'status',
@@ -37,7 +40,7 @@ class Order extends Model
     {
         static::creating(function (Order $order) {
 
-            // تاریخ سفارش اگر خالی بود امروز
+            // تاریخ سفارش
             $order->order_date ??= now()->toDateString();
 
             // وضعیت پیشفرض
@@ -48,12 +51,31 @@ class Order extends Model
             $order->discount_total ??= 0;
             $order->vat_total ??= 0;
             $order->grand_total ??= 0;
+
+            // ثبت کننده سفارش
+            if (auth()->check()) {
+
+                $order->created_by = auth()->id();
+
+                $user = auth()->user();
+
+                if ($user->hasRole(\App\Support\Roles::SALES_AGENT)) {
+
+                    $order->agent_name = $user->name;
+                    $order->agent_code = $user->agent_code;
+                }
+            }
         });
     }
 
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class);
+    }
+
+    public function createdBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
     }
 
     public function items(): HasMany

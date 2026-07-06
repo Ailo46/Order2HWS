@@ -7,6 +7,7 @@ use App\Filament\Resources\Customers\Pages\EditCustomer;
 use App\Filament\Resources\Customers\Pages\ListCustomers;
 use App\Filament\Resources\Customers\Schemas\CustomerForm;
 use App\Filament\Resources\Customers\Tables\CustomersTable;
+use App\Support\Roles;
 use App\Models\Customer;
 use BackedEnum;
 use Filament\Resources\Resource;
@@ -56,5 +57,14 @@ class CustomerResource extends Resource
             ->withoutGlobalScopes([
                 SoftDeletingScope::class,
             ]);
+    }
+
+    public static function canAccess(): bool
+    {
+        return auth()->user()?->hasAnyRole([
+            Roles::ADMIN,
+            Roles::SALES_MANAGER,
+            Roles::SALES_AGENT,
+        ]) ?? false;
     }
 }
