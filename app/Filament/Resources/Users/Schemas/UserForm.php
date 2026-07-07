@@ -10,9 +10,6 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\Select;
 
-use Spatie\Permission\Models\Role;
-use App\Support\Roles;
-
 class UserForm
 {
     public static function configure(Schema $schema): Schema
@@ -50,13 +47,11 @@ class UserForm
 
                         TextInput::make('phone')
                             ->label('Phone')
-                            ->tel()
-                            ->maxLength(30),
+                            ->tel(),
 
                         TextInput::make('mobile')
                             ->label('Mobile')
-                            ->tel()
-                            ->maxLength(30),
+                            ->tel(),
 
                     ])
                     ->columns(2),
@@ -68,15 +63,15 @@ class UserForm
                             ->label('Password')
                             ->password()
                             ->revealable()
-                            ->required(fn (string $operation): bool => $operation === 'create')
-                            ->dehydrated(fn ($state) => filled($state))
-                            ->dehydrateStateUsing(fn ($state) => Hash::make($state)),
+                            ->required(fn(string $operation) => $operation === 'create')
+                            ->dehydrated(fn($state) => filled($state))
+                            ->dehydrateStateUsing(fn($state) => Hash::make($state)),
 
                         TextInput::make('password_confirmation')
                             ->label('Confirm Password')
                             ->password()
                             ->revealable()
-                            ->required(fn (string $operation): bool => $operation === 'create')
+                            ->required(fn(string $operation) => $operation === 'create')
                             ->same('password')
                             ->dehydrated(false),
 
@@ -89,16 +84,26 @@ class UserForm
                         Select::make('roles')
                             ->label('Role')
                             ->relationship('roles', 'name')
-                            ->preload()
                             ->searchable()
+                            ->preload()
                             ->live(),
+
+                        TextInput::make('max_discount_percent')
+                            ->label('Maximum Discount %')
+                            ->numeric()
+                            ->default(0)
+                            ->minValue(0)
+                            ->maxValue(100)
+                            ->suffix('%')
+                            ->helperText('Maximum discount allowed for Sales Agent'),
 
                         Toggle::make('is_active')
                             ->label('Active')
                             ->default(true),
 
                     ])
-                    ->columns(2),
+                    ->columns(3),
+
             ]);
     }
 }

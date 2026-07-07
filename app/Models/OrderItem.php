@@ -19,6 +19,8 @@ class OrderItem extends Model
 
         'unit_price',
 
+        'net_unit_price',
+
         'discount_percent',
 
         'discount_amount',
@@ -40,6 +42,8 @@ class OrderItem extends Model
             'quantity' => 'decimal:2',
 
             'unit_price' => 'decimal:2',
+
+            'net_unit_price' => 'decimal:2',
 
             'discount_percent' => 'decimal:2',
 
