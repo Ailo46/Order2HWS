@@ -2,16 +2,22 @@
 
 namespace App\Filament\Resources\Orders\RelationManagers;
 
+use App\Models\OrderItem;
+use Filament\Actions\Action;
 use App\Models\Product;
 use App\Services\OrderPricingService;
 use Closure;
 use Filament\Actions\CreateAction;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\EditAction;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use App\Rules\AgentDiscountRule;
 
 class ItemsRelationManager extends RelationManager
 {
@@ -28,6 +34,8 @@ class ItemsRelationManager extends RelationManager
     {
         return $schema->components([
 
+            Hidden::make('id'),
+
             Select::make('product_id')
                 ->label('Product')
                 ->relationship(
@@ -40,27 +48,40 @@ class ItemsRelationManager extends RelationManager
                 ->searchable()
                 ->preload()
                 ->required()
+                ->rules([
 
-                ->rule(function () {
+                    function () {
 
-                    return function (
-                        string $attribute,
-                        $value,
-                        Closure $fail
-                    ) {
+                        return function (
+                            string $attribute,
+                            $value,
+                            Closure $fail
+                        ) {
 
-                        $order = $this->getOwnerRecord();
+                            $order = $this->getOwnerRecord();
 
-                        $exists = $order->items()
-                            ->where('product_id', $value)
-                            ->exists();
+                            $query = $order->items()
+                                ->where('product_id', $value);
 
-                        if ($exists) {
+                            $currentRecord = $this->getMountedTableActionRecord();
 
-                            $fail('This product already exists in this order.');
-                        }
-                    };
-                }),
+                            if ($currentRecord instanceof OrderItem) {
+                                $query->whereKeyNot($currentRecord->getKey());
+                            }
+
+                            if ($query->exists()) {
+
+                                $fail(
+                                    'This product already exists in this order.'
+                                );
+
+                            }
+
+                        };
+
+                    },
+
+                ]),
 
             TextInput::make('quantity')
                 ->numeric()
@@ -72,7 +93,16 @@ class ItemsRelationManager extends RelationManager
                 ->numeric()
                 ->default(0)
                 ->minValue(0)
-                ->maxValue(100),
+                ->rules([
+                    'numeric',
+                    'min:0',
+                    new AgentDiscountRule(),
+                ])
+                ->helperText(
+                    fn () => 'Maximum allowed: '
+                        . (auth()->user()?->max_discount_percent ?? 0)
+                        . '%'
+                ),
 
         ]);
     }
@@ -92,7 +122,7 @@ class ItemsRelationManager extends RelationManager
 
                 TextColumn::make('unit_price')
                     ->money('GBP')
-                    ->label('Unit'),
+                    ->label('Customer Unit'),
 
                 TextColumn::make('discount_percent')
                     ->suffix('%')
@@ -109,8 +139,8 @@ class ItemsRelationManager extends RelationManager
 
                 TextColumn::make('line_total')
                     ->money('GBP')
-                    ->label('Total')
-                    ->weight('bold'),
+                    ->weight('bold')
+                    ->label('Total'),
 
             ])
 
@@ -118,7 +148,10 @@ class ItemsRelationManager extends RelationManager
 
                 CreateAction::make()
 
-                    ->mutateDataUsing(function (array $data): array {
+                    ->using(function (
+                        array $data,
+                        Action $action,
+                    ) {
 
                         $order = $this->getOwnerRecord();
 
@@ -133,11 +166,46 @@ class ItemsRelationManager extends RelationManager
                             agentDiscountPercent: (float) ($data['discount_percent'] ?? 0),
                         );
 
-                        return array_merge(
-                            $data,
-                            $pricing,
-                        );
+                        return $order->items()->create([
+                            ...$data,
+                            ...$pricing,
+                        ]);
                     }),
+
+            ])
+
+            ->recordActions([
+
+                EditAction::make()
+
+                    ->using(function (
+                        OrderItem $record,
+                        array $data,
+                        Action $action,
+                    ) {
+
+                        $order = $this->getOwnerRecord();
+
+                        $customer = $order->customer;
+
+                        $product = Product::findOrFail($data['product_id']);
+
+                        $pricing = $this->pricing->calculate(
+                            product: $product,
+                            customer: $customer,
+                            quantity: (float) $data['quantity'],
+                            agentDiscountPercent: (float) ($data['discount_percent'] ?? 0),
+                        );
+
+                        $record->update([
+                            ...$data,
+                            ...$pricing,
+                        ]);
+
+                        return $record;
+                    }),
+
+                DeleteAction::make(),
 
             ]);
     }

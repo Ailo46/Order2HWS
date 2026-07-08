@@ -40,19 +40,15 @@ class Order extends Model
     {
         static::creating(function (Order $order) {
 
-            // تاریخ سفارش
             $order->order_date ??= now()->toDateString();
 
-            // وضعیت پیشفرض
             $order->status ??= 'draft';
 
-            // مقادیر مالی اولیه
             $order->subtotal ??= 0;
             $order->discount_total ??= 0;
             $order->vat_total ??= 0;
             $order->grand_total ??= 0;
 
-            // ثبت کننده سفارش
             if (auth()->check()) {
 
                 $order->created_by = auth()->id();
@@ -81,5 +77,30 @@ class Order extends Model
     public function items(): HasMany
     {
         return $this->hasMany(OrderItem::class);
+    }
+
+    /**
+     * Recalculate all financial totals from Order Items.
+     */
+    public function recalculateTotals(): void
+    {
+        $this->loadMissing('items');
+
+        $subtotal = (float) $this->items->sum(function ($item) {
+            return (float) $item->net_unit_price * (float) $item->quantity;
+        });
+
+        $discountTotal = (float) $this->items->sum('discount_amount');
+
+        $vatTotal = (float) $this->items->sum('vat_amount');
+
+        $grandTotal = (float) $this->items->sum('line_total');
+
+        $this->updateQuietly([
+            'subtotal'       => round($subtotal, 2),
+            'discount_total' => round($discountTotal, 2),
+            'vat_total'      => round($vatTotal, 2),
+            'grand_total'    => round($grandTotal, 2),
+        ]);
     }
 }
