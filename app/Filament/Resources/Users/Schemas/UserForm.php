@@ -2,13 +2,13 @@
 
 namespace App\Filament\Resources\Users\Schemas;
 
-use Filament\Schemas\Schema;
-use Filament\Schemas\Components\Section;
-use Illuminate\Support\Facades\Hash;
-
+use App\Support\Roles;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
-use Filament\Forms\Components\Select;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Schema;
+use Illuminate\Support\Facades\Hash;
 
 class UserForm
 {
@@ -63,15 +63,15 @@ class UserForm
                             ->label('Password')
                             ->password()
                             ->revealable()
-                            ->required(fn(string $operation) => $operation === 'create')
-                            ->dehydrated(fn($state) => filled($state))
-                            ->dehydrateStateUsing(fn($state) => Hash::make($state)),
+                            ->required(fn (string $operation) => $operation === 'create')
+                            ->dehydrated(fn ($state) => filled($state))
+                            ->dehydrateStateUsing(fn ($state) => Hash::make($state)),
 
                         TextInput::make('password_confirmation')
                             ->label('Confirm Password')
                             ->password()
                             ->revealable()
-                            ->required(fn(string $operation) => $operation === 'create')
+                            ->required(fn (string $operation) => $operation === 'create')
                             ->same('password')
                             ->dehydrated(false),
 
@@ -83,9 +83,30 @@ class UserForm
 
                         Select::make('roles')
                             ->label('Role')
-                            ->relationship('roles', 'name')
+                            ->relationship(
+                                name: 'roles',
+                                titleAttribute: 'name',
+                                modifyQueryUsing: fn ($query) => $query->whereIn('name', [
+
+                                    Roles::ADMIN,
+
+                                    Roles::SALES_MANAGER,
+
+                                    Roles::SALES_AGENT,
+
+                                    Roles::WAREHOUSE_USER,
+
+                                    Roles::LOGISTIC_USER,
+
+                                    Roles::CUSTOMER_CC,
+
+                                    Roles::END_CONSUMER,
+
+                                ]),
+                            )
                             ->searchable()
                             ->preload()
+                            ->required()
                             ->live(),
 
                         TextInput::make('max_discount_percent')
