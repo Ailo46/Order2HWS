@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Spatie\Permission\Traits\HasRoles;
+use App\Models\Customer;
 
 class User extends Authenticatable
 {
@@ -57,5 +58,15 @@ class User extends Authenticatable
     public function customers(): HasMany
     {
         return $this->hasMany(Customer::class, 'sales_agent_id');
+    }
+
+    protected static function booted(): void
+    {
+        static::deleting(function (User $user) {
+
+            app(\App\Services\UserCustomerDeleteService::class)
+                ->handle($user);
+
+        });
     }
 }
