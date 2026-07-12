@@ -2,20 +2,42 @@
 
 namespace App\Filament\Resources\Users\Schemas;
 
+use App\Models\Customer;
+use App\Models\User;
 use App\Support\Roles;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 class UserForm
 {
+    protected static function selectedRoleName($get): ?string
+    {
+        $roleId = $get('roles');
+
+        if (blank($roleId)) {
+            return null;
+        }
+
+        return DB::table('roles')
+            ->where('id', $roleId)
+            ->value('name');
+    }
+
     public static function configure(Schema $schema): Schema
     {
         return $schema
             ->components([
+
+                /*
+                |--------------------------------------------------------------------------
+                | Identity
+                |--------------------------------------------------------------------------
+                */
 
                 Section::make('Identity')
                     ->schema([
@@ -30,17 +52,69 @@ class UserForm
                             ->maxLength(2)
                             ->minLength(2)
                             ->unique(ignoreRecord: true)
-                            ->helperText('Two-digit code'),
+                            ->helperText('Two-digit code')
+                            ->visible(fn ($get) =>
+                                self::selectedRoleName($get) === Roles::SALES_AGENT
+                            ),
 
                         TextInput::make('email')
                             ->label('Email')
                             ->email()
                             ->required()
-                            ->unique(ignoreRecord: true)
-                            ->maxLength(255),
+                            ->maxLength(255)
+
+                            ->rule(function ($record) {
+
+                                return function (string $attribute, $value, \Closure $fail) use ($record) {
+
+                                    /*
+                                    |--------------------------------------------------------------------------
+                                    | Ignore current User
+                                    |--------------------------------------------------------------------------
+                                    */
+
+                                    $userExists = User::query()
+                                        ->where('email', $value)
+                                        ->when(
+                                            $record,
+                                            fn ($q) => $q->whereKeyNot($record->id)
+                                        )
+                                        ->exists();
+
+                                    if ($userExists) {
+                                        $fail('This email address is already in use.');
+                                        return;
+                                    }
+
+                                    /*
+                                    |--------------------------------------------------------------------------
+                                    | Ignore paired Customer of current User
+                                    |--------------------------------------------------------------------------
+                                    */
+
+                                    $customerExists = Customer::query()
+                                        ->whereNull('deleted_at')
+                                        ->where('email', $value)
+                                        ->when(
+                                            $record,
+                                            fn ($q) => $q->where('email', '!=', $record->email)
+                                        )
+                                        ->exists();
+
+                                    if ($customerExists) {
+                                        $fail('This email address is already in use.');
+                                    }
+                                };
+                            }),
 
                     ])
                     ->columns(3),
+
+                /*
+                |--------------------------------------------------------------------------
+                | Contact Information
+                |--------------------------------------------------------------------------
+                */
 
                 Section::make('Contact Information')
                     ->schema([
@@ -55,6 +129,89 @@ class UserForm
 
                     ])
                     ->columns(2),
+
+                /*
+                |--------------------------------------------------------------------------
+                | Authorization
+                |--------------------------------------------------------------------------
+                */
+
+                Section::make('Authorization')
+                    ->schema([
+
+                        Select::make('roles')
+                            ->label('Role')
+                            ->relationship(
+                                name: 'roles',
+                                titleAttribute: 'name',
+                                modifyQueryUsing: fn ($query) => $query->whereIn(
+                                    'name',
+                                    Roles::SYSTEM_USERS,
+                                ),
+                            )
+                            ->searchable()
+                            ->preload()
+                            ->native(false)
+                            ->live()
+                            ->columnSpan(2)
+                            ->required(),
+
+                        TextInput::make('max_discount_percent')
+                            ->label('Maximum Discount %')
+                            ->numeric()
+                            ->default(0)
+                            ->minValue(0)
+                            ->maxValue(100)
+                            ->suffix('%')
+                            ->visible(fn ($get) =>
+                                self::selectedRoleName($get) === Roles::SALES_AGENT
+                            ),
+
+                        TextInput::make('customer_discount_percent')
+                            ->label('Customer Discount %')
+                            ->numeric()
+                            ->default(0)
+                            ->minValue(0)
+                            ->maxValue(100)
+                            ->suffix('%')
+                            ->dehydrated(false)
+
+                            ->afterStateHydrated(function ($component, $record) {
+
+                                if (! $record) {
+                                    return;
+                                }
+
+                                $customer = Customer::where('email', $record->email)->first();
+
+                                $component->state(
+                                    $customer?->default_discount_percent
+                                );
+                            })
+
+                            ->visible(fn ($get) =>
+                                in_array(
+                                    self::selectedRoleName($get),
+                                    [
+                                        Roles::CUSTOMER_CC,
+                                        Roles::END_CONSUMER,
+                                    ],
+                                    true
+                                )
+                            ),
+
+                        Toggle::make('is_active')
+                            ->label('Active')
+                            ->default(true),
+
+                    ])
+                    ->columns(4),
+
+                /*
+                |--------------------------------------------------------------------------
+                | Security
+                |--------------------------------------------------------------------------
+                */
 
                 Section::make('Security')
                     ->schema([
@@ -78,52 +235,108 @@ class UserForm
                     ])
                     ->columns(2),
 
-                Section::make('Authorization')
+                /*
+                |--------------------------------------------------------------------------
+                | Customer Information
+                |--------------------------------------------------------------------------
+                */
+
+                Section::make('Customer Information')
+                    ->visible(fn ($get) => in_array(
+                        self::selectedRoleName($get),
+                        [
+                            Roles::CUSTOMER_CC,
+                            Roles::END_CONSUMER,
+                        ],
+                        true,
+                    ))
                     ->schema([
 
-                        Select::make('roles')
-                            ->label('Role')
-                            ->relationship(
-                                name: 'roles',
-                                titleAttribute: 'name',
-                                modifyQueryUsing: fn ($query) => $query->whereIn('name', [
+                        TextInput::make('customer_code')
+                            ->label('Customer Code')
+                            ->maxLength(30)
+                            ->dehydrated(false)
 
-                                    Roles::ADMIN,
+                            ->rule(function ($record) {
 
-                                    Roles::SALES_MANAGER,
+                                return function (string $attribute, $value, \Closure $fail) use ($record) {
 
-                                    Roles::SALES_AGENT,
+                                    if (blank($value)) {
+                                        return;
+                                    }
 
-                                    Roles::WAREHOUSE_USER,
+                                    $query = Customer::query()
+                                        ->whereNull('deleted_at')
+                                        ->where('code', $value);
 
-                                    Roles::LOGISTIC_USER,
+                                    if ($record) {
 
-                                    Roles::CUSTOMER_CC,
+                                        $query->where('email', '!=', $record->email);
+                                    }
 
-                                    Roles::END_CONSUMER,
+                                    if ($query->exists()) {
 
-                                ]),
-                            )
-                            ->searchable()
-                            ->preload()
-                            ->required()
-                            ->live(),
+                                        $fail('Customer Code already exists.');
+                                    }
+                                };
+                            })
 
-                        TextInput::make('max_discount_percent')
-                            ->label('Maximum Discount %')
-                            ->numeric()
-                            ->default(0)
-                            ->minValue(0)
-                            ->maxValue(100)
-                            ->suffix('%')
-                            ->helperText('Maximum discount allowed for Sales Agent'),
+                            ->afterStateHydrated(function ($component, $record) {
 
-                        Toggle::make('is_active')
-                            ->label('Active')
-                            ->default(true),
+                                if (! $record) {
+                                    return;
+                                }
+
+                                $customer = Customer::where('email', $record->email)->first();
+
+                                $component->state($customer?->code);
+                            }),
+
+                        TextInput::make('business_name')
+                            ->label('Business Name')
+                            ->dehydrated(false)
+                            ->afterStateHydrated(function ($component, $record) {
+
+                                if (! $record) {
+                                    return;
+                                }
+
+                                $customer = Customer::where('email', $record->email)->first();
+
+                                $component->state($customer?->name);
+                            }),
+
+                        TextInput::make('contact_name')
+                            ->label('Contact Name')
+                            ->dehydrated(false)
+                            ->afterStateHydrated(function ($component, $record) {
+
+                                if (! $record) {
+                                    return;
+                                }
+
+                                $customer = Customer::where('email', $record->email)->first();
+
+                                $component->state($customer?->contact_name);
+                            }),
+
+                        TextInput::make('address')
+                            ->label('Address')
+                            ->columnSpanFull()
+                            ->dehydrated(false)
+                            ->afterStateHydrated(function ($component, $record) {
+
+                                if (! $record) {
+                                    return;
+                                }
+
+                                $customer = Customer::where('email', $record->email)->first();
+
+                                $component->state($customer?->address);
+                            }),
 
                     ])
-                    ->columns(3),
+                    ->columns(2),
 
             ]);
     }

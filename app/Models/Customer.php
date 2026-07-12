@@ -12,38 +12,87 @@ class Customer extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        // Identity
+
+        /*
+        |--------------------------------------------------------------------------
+        | Identity
+        |--------------------------------------------------------------------------
+        */
+
         'code',
         'name',
         'is_active',
 
-        // Business Classification
+        /*
+        |--------------------------------------------------------------------------
+        | Business Classification
+        |--------------------------------------------------------------------------
+        */
+
         'customer_type_id',
         'price_level_id',
 
-        // Pricing
+        /*
+        |--------------------------------------------------------------------------
+        | Pricing
+        |--------------------------------------------------------------------------
+        */
+
         'default_discount_percent',
 
-        // Contact Information
+        /*
+        |--------------------------------------------------------------------------
+        | Assignment
+        |--------------------------------------------------------------------------
+        */
+
+        'sales_agent_id',
+
+        /*
+        |--------------------------------------------------------------------------
+        | Contact Information
+        |--------------------------------------------------------------------------
+        */
+
         'contact_name',
         'phone',
         'mobile',
         'email',
 
-        // Address
+        /*
+        |--------------------------------------------------------------------------
+        | Address
+        |--------------------------------------------------------------------------
+        */
+
         'address',
 
-        // Notes
+        /*
+        |--------------------------------------------------------------------------
+        | Notes
+        |--------------------------------------------------------------------------
+        */
+
         'notes',
+
     ];
 
     protected function casts(): array
     {
         return [
+
             'is_active' => 'boolean',
+
             'default_discount_percent' => 'decimal:2',
+
         ];
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Relationships
+    |--------------------------------------------------------------------------
+    */
 
     public function customerType(): BelongsTo
     {
@@ -55,13 +104,13 @@ class Customer extends Model
         return $this->belongsTo(PriceLevel::class);
     }
 
-    public function orders(): HasMany
-    {
-        return $this->hasMany(Order::class);
-    }
-
     public function salesAgent(): BelongsTo
     {
         return $this->belongsTo(User::class, 'sales_agent_id');
+    }
+
+    public function orders(): HasMany
+    {
+        return $this->hasMany(Order::class);
     }
 }

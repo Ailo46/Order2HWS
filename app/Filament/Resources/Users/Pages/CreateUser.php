@@ -3,9 +3,18 @@
 namespace App\Filament\Resources\Users\Pages;
 
 use App\Filament\Resources\Users\UserResource;
+use App\Services\UserCustomerService;
 use Filament\Resources\Pages\CreateRecord;
 
 class CreateUser extends CreateRecord
 {
     protected static string $resource = UserResource::class;
+
+    protected function afterCreate(): void
+    {
+        app(UserCustomerService::class)->handle(
+            $this->record,
+            $this->data,
+        );
+    }
 }
