@@ -21,6 +21,8 @@ class UserResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
 
+    protected static ?int $navigationSort = 30;
+    
     protected static ?string $recordTitleAttribute = 'name';
 
     public static function form(Schema $schema): Schema
