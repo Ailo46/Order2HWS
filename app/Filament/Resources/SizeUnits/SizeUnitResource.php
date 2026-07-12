@@ -27,7 +27,9 @@ class SizeUnitResource extends BaseResource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
 
-    protected static ?int $navigationSort = 80;
+    protected static string|\UnitEnum|null $navigationGroup = '⚙️ Settings';
+
+    protected static ?int $navigationSort = 20;
     
     protected static ?string $recordTitleAttribute = 'name';
 

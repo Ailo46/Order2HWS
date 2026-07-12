@@ -27,7 +27,9 @@ class ProductResource extends BaseResource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
 
-    protected static ?int $navigationSort = 60;
+    protected static string|\UnitEnum|null $navigationGroup = '📦 Items';
+
+    protected static ?int $navigationSort = 30;
     
     protected static ?string $recordTitleAttribute = 'name';
 
