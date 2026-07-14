@@ -126,19 +126,31 @@ class UserCustomerService
 
             if ($user->hasRole(Roles::END_CONSUMER)) {
 
-                // Consumer has NO Business Name
+                /*
+                |--------------------------------------------------------------------------
+                | End Consumer
+                |--------------------------------------------------------------------------
+                |
+                | There is no Business Name.
+                | Store Full Name into Customer Name.
+                |
+                */
 
-                $customer->name = null;
+                $customer->name = $user->name;
 
                 $customer->contact_name = $user->name;
 
             } else {
 
-                // Cash & Carry Customer
+                /*
+                |--------------------------------------------------------------------------
+                | Cash & Carry Customer
+                |--------------------------------------------------------------------------
+                */
 
                 $customer->name = filled($data['business_name'] ?? null)
                     ? $data['business_name']
-                    : $customer->name;
+                    : $user->name;
 
                 $customer->contact_name = filled($data['contact_name'] ?? null)
                     ? $data['contact_name']
