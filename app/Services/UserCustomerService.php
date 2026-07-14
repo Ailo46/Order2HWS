@@ -31,7 +31,7 @@ class UserCustomerService
 
             /*
             |--------------------------------------------------------------------------
-            | Customer Type
+            | Customer Type / Price Level
             |--------------------------------------------------------------------------
             */
 
@@ -65,7 +65,7 @@ class UserCustomerService
 
             /*
             |--------------------------------------------------------------------------
-            | Find Existing Customer
+            | Existing Customer
             |--------------------------------------------------------------------------
             */
 
@@ -73,21 +73,9 @@ class UserCustomerService
                 ->where('email', $user->email)
                 ->first();
 
-            /*
-            |--------------------------------------------------------------------------
-            | Restore if deleted
-            |--------------------------------------------------------------------------
-            */
-
             if ($customer?->trashed()) {
                 $customer->restore();
             }
-
-            /*
-            |--------------------------------------------------------------------------
-            | Create if not exists
-            |--------------------------------------------------------------------------
-            */
 
             if (! $customer) {
 
@@ -117,9 +105,7 @@ class UserCustomerService
                 if ($exists) {
 
                     throw ValidationException::withMessages([
-
                         'customer_code' => 'Customer Code already exists.',
-
                     ]);
                 }
             }
@@ -132,14 +118,35 @@ class UserCustomerService
 
             $customer->code = $newCode;
 
-            $customer->name = $data['business_name']
-                ?? $customer->name
-                ?? $user->name;
+            /*
+            |--------------------------------------------------------------------------
+            | Customer Name / Contact Name
+            |--------------------------------------------------------------------------
+            */
 
-            $customer->contact_name = $data['contact_name']
-                ?? $user->name;
+            if ($user->hasRole(Roles::END_CONSUMER)) {
 
-            $customer->address = $data['address']
+                // Consumer has NO Business Name
+
+                $customer->name = null;
+
+                $customer->contact_name = $user->name;
+
+            } else {
+
+                // Cash & Carry Customer
+
+                $customer->name = filled($data['business_name'] ?? null)
+                    ? $data['business_name']
+                    : $customer->name;
+
+                $customer->contact_name = filled($data['contact_name'] ?? null)
+                    ? $data['contact_name']
+                    : $user->name;
+            }
+
+            $customer->address =
+                $data['address']
                 ?? $customer->address;
 
             $customer->default_discount_percent =
@@ -167,7 +174,6 @@ class UserCustomerService
             }
 
             $customer->save();
-
         });
     }
 }

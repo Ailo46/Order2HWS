@@ -22,13 +22,40 @@ class CustomersTable
 
             ->columns([
 
-                TextColumn::make('code')
+                TextColumn::make('display_code')
                     ->label('Code')
+                    ->state(function (Customer $record): string {
+
+                        return match ($record->customerType?->name) {
+
+                            'Consumer' => 'N/A',
+
+                            default => filled($record->code)
+                                ? $record->code
+                                : 'N/A',
+                        };
+                    })
                     ->searchable()
                     ->sortable(),
 
-                TextColumn::make('name')
+                TextColumn::make('display_name')
                     ->label('Customer')
+                    ->state(function (Customer $record): string {
+
+                        return match ($record->customerType?->name) {
+
+                            'Consumer' =>
+                                $record->contact_name ?: '(No Name)',
+
+                            'Cash & Carry Customer' =>
+                                filled($record->name)
+                                    ? $record->name
+                                    : ($record->contact_name ?: '(No Name)'),
+
+                            default =>
+                                $record->name ?? '(No Name)',
+                        };
+                    })
                     ->searchable()
                     ->sortable(),
 
@@ -51,6 +78,45 @@ class CustomersTable
                         };
                     }),
 
+                TextColumn::make('display_sales_agent')
+                    ->label('Sales Agent')
+
+                    ->state(function (Customer $record): string {
+
+                        return match ($record->customerType?->name) {
+
+                            'Consumer',
+                            'Cash & Carry Customer'
+                                => 'Direct',
+
+                            'Managed Customer'
+                                => filled($record->salesAgent?->name)
+                                    ? $record->salesAgent->name
+                                    : 'Not Yet',
+
+                            default => '',
+                        };
+                    })
+
+                    ->badge()
+
+                    ->color(function (Customer $record): string {
+
+                        return match ($record->customerType?->name) {
+
+                            'Consumer',
+                            'Cash & Carry Customer'
+                                => 'gray',
+
+                            'Managed Customer'
+                                => filled($record->salesAgent?->name)
+                                    ? 'success'
+                                    : 'danger',
+
+                            default => 'gray',
+                        };
+                    }),
+
                 TextColumn::make('priceLevel.name')
                     ->label('Price Level')
                     ->badge()
@@ -64,11 +130,6 @@ class CustomersTable
                 IconColumn::make('is_active')
                     ->label('Active')
                     ->boolean(),
-
-                TextColumn::make('created_at')
-                    ->label('Created')
-                    ->dateTime('Y-m-d')
-                    ->sortable(),
 
             ])
 
