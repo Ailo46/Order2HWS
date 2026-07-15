@@ -14,6 +14,7 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Schema;
+use Filament\Forms\Components\DateTimePicker;
 
 class ProductForm
 {
@@ -112,24 +113,63 @@ class ProductForm
 
                     ->schema([
 
-                        Grid::make(3)
+                        Grid::make(4)
 
                             ->schema([
 
                                 TextInput::make('base_price')
+                                    ->label('Base Price')
                                     ->numeric()
                                     ->prefix('£')
                                     ->required(),
 
                                 TextInput::make('special_offer_percent')
+                                    ->label('Special Offer')
                                     ->numeric()
+                                    ->minValue(0)
+                                    ->maxValue(100)
                                     ->suffix('%')
                                     ->default(0),
 
                                 TextInput::make('vat_percent')
+                                    ->label('VAT')
                                     ->numeric()
                                     ->suffix('%')
                                     ->default(0),
+
+                                Toggle::make('offer_active')
+                                    ->label('Offer Active')
+                                    ->live()
+
+                                    ->afterStateUpdated(function ($set, $state) {
+
+                                        if (! $state) {
+
+                                            $set('offer_start_at', null);
+                                            $set('offer_end_at', null);
+                                        }
+                                    }),
+
+                            ]),
+
+                        Grid::make(2)
+
+                            ->schema([
+
+                                DateTimePicker::make('offer_start_at')
+                                    ->label('Offer Starts')
+                                    ->seconds(false)
+                                    ->native(false)
+                                    ->disabled(fn ($get) => ! $get('offer_active'))
+                                    ->required(fn ($get) => $get('offer_active')),
+
+                                DateTimePicker::make('offer_end_at')
+                                    ->label('Offer Ends')
+                                    ->seconds(false)
+                                    ->native(false)
+                                    ->disabled(fn ($get) => ! $get('offer_active'))
+                                    ->required(fn ($get) => $get('offer_active'))
+                                    ->after('offer_start_at'),
 
                             ]),
 
