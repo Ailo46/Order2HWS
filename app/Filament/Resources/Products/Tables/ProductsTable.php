@@ -3,7 +3,7 @@
 namespace App\Filament\Resources\Products\Tables;
 
 use App\Models\Product;
-use Carbon\Carbon;
+use App\Services\PriceEngine;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -32,106 +32,159 @@ class ProductsTable
                 TextColumn::make('code')
                     ->label('Code')
                     ->searchable()
+                    ->sortable()
+                    ->weight('bold'),
+
+                TextColumn::make('brand.name')
+                    ->label('Brand')
+                    ->searchable()
                     ->sortable(),
 
                 TextColumn::make('name')
                     ->label('Product')
                     ->searchable()
-                    ->sortable(),
+                    ->sortable()
+                    ->wrap(),
 
-                TextColumn::make('brand.name')
-                    ->label('Brand')
-                    ->sortable(),
+                TextColumn::make('pack_size')
+                    ->label('Pack / Size')
 
-                TextColumn::make('category.name')
-                    ->label('Category')
-                    ->sortable(),
+                    ->state(function (Product $record): string {
 
-                TextColumn::make('base_price')
-                    ->label('Base Price')
-                    ->money('GBP')
-                    ->sortable(),
+                        $unit = $record->unit?->name ?? '—';
 
-                TextColumn::make('special_offer_percent')
-                    ->label('Offer')
-                    ->suffix('%')
-                    ->sortable(),
+                        $quantity = $record->qty_per_pack ?? 1;
 
-                TextColumn::make('offer_price')
-                    ->label('Offer Price')
+                        $size = filled($record->size)
+                            ? rtrim(
+                                rtrim(
+                                    number_format(
+                                        (float) $record->size,
+                                        2,
+                                        '.',
+                                        ''
+                                    ),
+                                    '0'
+                                ),
+                                '.'
+                            )
+                            : '—';
 
-                    ->state(function (Product $record) {
+                        $sizeUnit = $record->sizeUnit?->name ?? '';
 
-                        if (
-                            ! $record->offer_active ||
-                            $record->special_offer_percent <= 0
-                        ) {
-                            return null;
-                        }
+                        return "{$unit} | {$quantity}x{$size}{$sizeUnit}";
+                    }),
 
-                        $price = $record->base_price *
-                            (100 - $record->special_offer_percent) / 100;
-
-                        return number_format($price, 2);
-                    })
-
-                    ->money('GBP')
-
-                    ->color('success')
-
-                    ->placeholder('-'),
-
-                TextColumn::make('offer_status')
-
-                    ->label('Offer Status')
-
+                TextColumn::make('offer_display')
+                    ->label('Special Offer')
                     ->badge()
 
-                    ->state(function (Product $record) {
+                    ->state(function (Product $record): string {
+
+                        $percent = rtrim(
+                            rtrim(
+                                number_format(
+                                    (float) $record->special_offer_percent,
+                                    2,
+                                    '.',
+                                    ''
+                                ),
+                                '0'
+                            ),
+                            '.'
+                        );
 
                         if (
                             ! $record->offer_active ||
-                            $record->special_offer_percent <= 0
+                            (float) $record->special_offer_percent <= 0
                         ) {
                             return 'No Offer';
                         }
-
-                        $now = Carbon::now();
 
                         if (
                             $record->offer_start_at &&
                             $record->offer_start_at->isFuture()
                         ) {
-                            return 'Scheduled';
+                            return "Scheduled {$percent}%";
                         }
 
                         if (
                             $record->offer_end_at &&
                             $record->offer_end_at->isPast()
                         ) {
-                            return 'Expired';
+                            return "Expired {$percent}%";
                         }
 
-                        return 'Live Offer';
+                        return "Live {$percent}%";
                     })
 
-                    ->color(function (string $state) {
+                    ->color(function (string $state): string {
 
-                        return match ($state) {
+                        if (str_starts_with($state, 'Live')) {
+                            return 'success';
+                        }
 
-                            'Live Offer' => 'success',
+                        if (str_starts_with($state, 'Scheduled')) {
+                            return 'warning';
+                        }
 
-                            'Scheduled' => 'warning',
+                        if (str_starts_with($state, 'Expired')) {
+                            return 'danger';
+                        }
 
-                            'Expired' => 'danger',
-
-                            default => 'gray',
-                        };
+                        return 'gray';
                     }),
+
+                TextColumn::make('base_price')
+                    ->label('Base Price')
+                    ->money('GBP')
+                    ->sortable(),
+
+                TextColumn::make('current_price')
+                    ->label('Current Price')
+
+                    ->state(fn (Product $record): float =>
+                        PriceEngine::selling($record)
+                    )
+
+                    ->money('GBP')
+
+                    ->color(fn (Product $record): string =>
+                        PriceEngine::offerIsActive($record)
+                            ? 'success'
+                            : 'gray'
+                    )
+
+                    ->weight(fn (Product $record): string =>
+                        PriceEngine::offerIsActive($record)
+                            ? 'bold'
+                            : 'normal'
+                    ),
+
+                TextColumn::make('category.name')
+                    ->label('Category')
+                    ->searchable()
+                    ->sortable(),
 
                 TextColumn::make('stock_quantity')
                     ->label('Stock')
-                    ->sortable(),
+                    ->sortable()
+                    ->badge()
+
+                    ->color(function ($state): string {
+
+                        $stock = (int) $state;
+
+                        if ($stock <= 0) {
+                            return 'danger';
+                        }
+
+                        if ($stock <= 10) {
+                            return 'warning';
+                        }
+
+                        return 'success';
+                    }),
 
                 IconColumn::make('is_active')
                     ->label('Active')
