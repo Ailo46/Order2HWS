@@ -94,6 +94,10 @@ class Product extends Model
         'is_active',
     ];
 
+    protected $appends = [
+        'selling_price',
+    ];
+
     protected function casts(): array
     {
         return [
@@ -170,5 +174,34 @@ class Product extends Model
     public function sizeUnit(): BelongsTo
     {
         return $this->belongsTo(SizeUnit::class);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Price Accessors
+    |--------------------------------------------------------------------------
+    */
+
+    public function getSellingPriceAttribute(): float
+    {
+        $price = (float) $this->base_price;
+
+        $offerEnabled =
+            $this->offer_active
+            && $this->special_offer_percent > 0
+            && (
+                is_null($this->offer_start_at)
+                || now()->greaterThanOrEqualTo($this->offer_start_at)
+            )
+            && (
+                is_null($this->offer_end_at)
+                || now()->lessThanOrEqualTo($this->offer_end_at)
+            );
+
+        if ($offerEnabled) {
+            $price -= $price * ($this->special_offer_percent / 100);
+        }
+
+        return round($price, 2);
     }
 }
