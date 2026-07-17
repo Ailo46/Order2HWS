@@ -337,7 +337,9 @@ class ProductForm
 
                         FileUpload::make('image')
                             ->image()
-                            ->directory('products'),
+                            ->disk('public')
+                            ->directory('products')
+                            ->visibility('public')
 
                     ]),
 
