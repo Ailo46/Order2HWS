@@ -12,8 +12,8 @@ use Filament\Actions\RestoreBulkAction;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Filters\TrashedFilter;
 use Filament\Tables\Table;
+use Illuminate\Support\Str;
 
 class ProductsTable
 {
@@ -24,28 +24,33 @@ class ProductsTable
 
             ->columns([
                 ImageColumn::make('image')
-                    ->label('')
+                    ->label('Image')
                     ->disk('public')
                     ->square()
-                    ->size(44),
+                    ->size(44)
+                    ->toggleable(),
 
                 TextColumn::make('code')
                     ->label('Code')
                     ->searchable()
                     ->sortable()
-                    ->weight('bold'),
+                    ->weight('bold')
+                    ->toggleable(),
 
                 TextColumn::make('brand.name')
                     ->label('Brand')
                     ->searchable()
                     ->sortable()
-                    ->placeholder('—'),
+                    ->placeholder('—')
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('name')
                     ->label('Product')
                     ->searchable()
                     ->sortable()
-                    ->wrap(),
+                    ->wrap()
+                    ->grow()
+                    ->toggleable(),
 
                 TextColumn::make('pack_size')
                     ->label('Pack / Size')
@@ -56,7 +61,8 @@ class ProductsTable
                     ->tooltip(
                         fn (Product $record): string =>
                             self::formatPackSizeTooltip($record)
-                    ),
+                    )
+                    ->toggleable(),
 
                 TextColumn::make('offer_display')
                     ->label('Special Offer')
@@ -68,13 +74,15 @@ class ProductsTable
                     ->color(
                         fn (string $state): string =>
                             self::offerColor($state)
-                    ),
+                    )
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('base_price')
                     ->label('Base Price')
                     ->money('GBP')
                     ->sortable()
-                    ->color('gray'),
+                    ->color('gray')
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('current_price')
                     ->label('Current Price')
@@ -94,13 +102,15 @@ class ProductsTable
                             PriceEngine::offerIsActive($record)
                                 ? 'bold'
                                 : 'normal'
-                    ),
+                    )
+                    ->toggleable(),
 
                 TextColumn::make('category.name')
                     ->label('Category')
                     ->searchable()
                     ->sortable()
-                    ->placeholder('—'),
+                    ->placeholder('—')
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('stock_display')
                     ->label('Stock')
@@ -123,16 +133,17 @@ class ProductsTable
                                 'stock_quantity',
                                 $direction
                             )
-                    ),
+                    )
+                    ->toggleable(),
 
                 IconColumn::make('is_active')
                     ->label('Active')
-                    ->boolean(),
+                    ->boolean()
+                    ->toggleable(),
             ])
 
-            ->filters([
-                TrashedFilter::make(),
-            ])
+            ->reorderableColumns()
+            ->deferColumnManager(false)
 
             ->recordActions([
                 EditAction::make(),
@@ -172,7 +183,7 @@ class ProductsTable
     private static function formatPackSizeTooltip(
         Product $record
     ): string {
-        $sellingUnit = $record->unit?->name ?? 'Pack';
+        $sellingUnit = self::packUnitName($record);
 
         $quantityPerPack = max(
             1,
@@ -184,9 +195,13 @@ class ProductsTable
 
     private static function formatStock(Product $record): string
     {
+        if (self::isBulkKilogramProduct($record)) {
+            return self::formatKilogramStock($record);
+        }
+
         $stock = max(
             0,
-            (int) ($record->stock_quantity ?? 0)
+            (int) round((float) ($record->stock_quantity ?? 0))
         );
 
         $quantityPerPack = max(
@@ -221,10 +236,9 @@ class ProductsTable
             );
         }
 
-        $packLabel = self::pluralize(
+        $packLabel = self::pluralizePackUnit(
             $fullPacks,
-            'Pack',
-            'Packs'
+            self::packUnitName($record)
         );
 
         if ($remainingUnits === 0) {
@@ -243,9 +257,18 @@ class ProductsTable
     private static function formatStockTooltip(
         Product $record
     ): string {
+        if (self::isBulkKilogramProduct($record)) {
+            return number_format(
+                max(0, (float) ($record->stock_quantity ?? 0)),
+                3,
+                '.',
+                ''
+            ) . ' kilograms in total';
+        }
+
         $stock = max(
             0,
-            (int) ($record->stock_quantity ?? 0)
+            (int) round((float) ($record->stock_quantity ?? 0))
         );
 
         $quantityPerPack = max(
@@ -253,10 +276,14 @@ class ProductsTable
             (int) ($record->qty_per_pack ?? 1)
         );
 
+        if ($quantityPerPack <= 1) {
+            return "{$stock} saleable units in total";
+        }
+
+        $packUnit = self::packUnitName($record);
+
         return "{$stock} saleable units in total"
-            . ($quantityPerPack > 1
-                ? " — {$quantityPerPack} units per pack"
-                : '');
+            . " — {$quantityPerPack} units per {$packUnit}";
     }
 
     private static function stockColor(
@@ -264,17 +291,23 @@ class ProductsTable
     ): string {
         $stock = max(
             0,
-            (int) ($record->stock_quantity ?? 0)
-        );
-
-        $quantityPerPack = max(
-            1,
-            (int) ($record->qty_per_pack ?? 1)
+            (float) ($record->stock_quantity ?? 0)
         );
 
         if ($stock <= 0) {
             return 'danger';
         }
+
+        if (self::isBulkKilogramProduct($record)) {
+            return $stock < 10
+                ? 'warning'
+                : 'success';
+        }
+
+        $quantityPerPack = max(
+            1,
+            (int) ($record->qty_per_pack ?? 1)
+        );
 
         /*
          * Yellow when fewer than two full packs remain.
@@ -289,6 +322,137 @@ class ProductsTable
         }
 
         return 'success';
+    }
+
+    private static function isBulkKilogramProduct(
+        Product $record
+    ): bool {
+        $quantityPerPack = max(
+            1,
+            (int) ($record->qty_per_pack ?? 1)
+        );
+
+        $size = (float) ($record->size ?? 0);
+
+        $sizeUnit = strtoupper(
+            preg_replace(
+                '/[^A-Z0-9]/',
+                '',
+                Str::ascii(
+                    trim((string) $record->sizeUnit?->name)
+                )
+            ) ?? ''
+        );
+
+        $isKilogram = in_array(
+            $sizeUnit,
+            [
+                'KG',
+                'KGS',
+                'KILO',
+                'KILOS',
+                'KILOGRAM',
+                'KILOGRAMS',
+            ],
+            true
+        );
+
+        return $quantityPerPack === 1
+            && abs($size - 1.0) < 0.000001
+            && $isKilogram;
+    }
+
+    private static function formatKilogramStock(
+        Product $record
+    ): string {
+        $stock = round(
+            max(0, (float) ($record->stock_quantity ?? 0)),
+            3
+        );
+
+        if ($stock <= 0) {
+            return 'Out of Stock';
+        }
+
+        $kilograms = (int) floor($stock);
+
+        $grams = (int) round(
+            ($stock - $kilograms) * 1000
+        );
+
+        /*
+         * Protect against a floating-point edge case such as
+         * 1.999999 becoming 1 kg + 1000 g.
+         */
+        if ($grams >= 1000) {
+            $kilograms++;
+            $grams = 0;
+        }
+
+        if ($grams === 0) {
+            return self::pluralize(
+                $kilograms,
+                'kg',
+                'kg'
+            );
+        }
+
+        if ($kilograms === 0) {
+            return self::pluralize(
+                $grams,
+                'g',
+                'g'
+            );
+        }
+
+        return self::pluralize(
+            $kilograms,
+            'kg',
+            'kg'
+        )
+            . ' + '
+            . self::pluralize(
+                $grams,
+                'g',
+                'g'
+            );
+    }
+
+    private static function packUnitName(
+        Product $record
+    ): string {
+        $name = trim(
+            (string) ($record->unit?->name ?? '')
+        );
+
+        return $name !== ''
+            ? $name
+            : 'Pack';
+    }
+
+    private static function pluralizePackUnit(
+        int $quantity,
+        string $unit
+    ): string {
+        $singular = self::singularizeUnit($unit);
+
+        return $quantity
+            . ' '
+            . ($quantity === 1
+                ? $singular
+                : Str::plural($singular));
+    }
+
+    private static function singularizeUnit(
+        string $unit
+    ): string {
+        $unit = trim($unit);
+
+        if ($unit === '') {
+            return 'Pack';
+        }
+
+        return Str::singular($unit);
     }
 
     private static function formatOffer(

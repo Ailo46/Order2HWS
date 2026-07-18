@@ -175,13 +175,32 @@ class ProductsImport implements ToCollection, WithHeadingRow, SkipsEmptyRows
                 $excelRowNumber
             );
 
-            $sellingUnit = $this->findOrCreateReference(
-                Unit::class,
-                $packaging['stock_mode'] === 'bulk_weight'
-                    ? 'Kilogram'
-                    : 'Box',
-                'UNIT'
-            );
+            /*
+             * Bulk-weight products always use Kilogram.
+             *
+             * For packaged products, preserve the product's existing pack unit
+             * (for example Box, Sac or Carton). The spreadsheet does not contain
+             * a pack-unit column, so overwriting an existing unit with Box would
+             * destroy manually configured product data.
+             *
+             * New packaged products default to Box until their actual pack unit
+             * is assigned in the product form.
+             */
+            $sellingUnit = null;
+
+            if ($packaging['stock_mode'] === 'bulk_weight') {
+                $sellingUnit = $this->findOrCreateReference(
+                    Unit::class,
+                    'Kilogram',
+                    'UNIT'
+                );
+            } elseif ($isNewProduct || $product->unit_id === null) {
+                $sellingUnit = $this->findOrCreateReference(
+                    Unit::class,
+                    'Box',
+                    'UNIT'
+                );
+            }
 
             /*
              * Size Units use alias-aware matching.
@@ -261,9 +280,8 @@ class ProductsImport implements ToCollection, WithHeadingRow, SkipsEmptyRows
                 excelRowNumber: $excelRowNumber,
             );
 
-            $product->fill([
+            $productData = [
                 'name' => $productName,
-                'unit_id' => $sellingUnit->getKey(),
                 'qty_per_pack' => $packaging['qty_per_pack'],
                 'size' => $packaging['size'],
                 'size_unit_id' => $sizeUnit->getKey(),
@@ -271,7 +289,13 @@ class ProductsImport implements ToCollection, WithHeadingRow, SkipsEmptyRows
                 'base_price' => $price,
                 'stock_quantity' => $stockQuantity,
                 'is_active' => true,
-            ]);
+            ];
+
+            if ($sellingUnit !== null) {
+                $productData['unit_id'] = $sellingUnit->getKey();
+            }
+
+            $product->fill($productData);
 
             $imageFilename = $this->normalizeImageFilename(
                 $this->readValue(
@@ -334,7 +358,7 @@ class ProductsImport implements ToCollection, WithHeadingRow, SkipsEmptyRows
          * Bulk products expressed as 1X1KG may contain a decimal
          * kilogram quantity.
          *
-         * Example:
+         * The value is stored with no more than three decimal places:
          * 1998.500 KG = 1998 KG and 500 grams.
          */
         if ($stockMode === 'bulk_weight') {
@@ -359,40 +383,44 @@ class ProductsImport implements ToCollection, WithHeadingRow, SkipsEmptyRows
         }
 
         /*
-         * Packaged and individual products must result in a whole
-         * number of smallest saleable units.
-         */
-        $unitQuantity = match ($qtyType) {
-            'unit' => $quantity,
-            'pack' => $quantity * $qtyPerPack,
-
-            default => throw new RuntimeException(
-                "Unsupported QtyType for product code {$productCode}."
-            ),
-        };
-
-        $unitQuantity += $looseUnitQuantity;
-
-        /*
-         * Floating-point values from Excel may contain very small
-         * precision differences.
+         * Packaged stock is stored as the total number of smallest
+         * saleable units.
          *
-         * Valid:
-         * 186.4166666667 packs × 12 = 2237 units
+         * When Qty is expressed as packs:
+         * - the whole-number part is the number of complete packs;
+         * - the fractional part is converted to loose units and rounded.
          *
-         * Invalid:
-         * A quantity that genuinely produces 2237.4 units
+         * Example:
+         * 132.42 packs with 12 units per pack
+         * = 132 complete packs + round(0.42 × 12) loose units
+         * = 1584 + 5
+         * = 1589 stored saleable units.
          */
-        if (! $this->isWholeNumber($unitQuantity)) {
+        if ($qtyType === 'pack') {
+            $wholePackQuantity = (int) floor($quantity);
+            $fractionalPackQuantity = $quantity - $wholePackQuantity;
+
+            $unitQuantity =
+                ($wholePackQuantity * $qtyPerPack)
+                + (int) round($fractionalPackQuantity * $qtyPerPack);
+        } elseif ($qtyType === 'unit') {
+            if (! $this->isWholeNumber($quantity)) {
+                throw new RuntimeException(
+                    "Qty on Excel row {$excelRowNumber} must be a whole "
+                    . "saleable-unit quantity for product code {$productCode}."
+                );
+            }
+
+            $unitQuantity = (int) round($quantity);
+        } else {
             throw new RuntimeException(
-                "Qty on Excel row {$excelRowNumber} produces "
-                . "a fractional saleable unit for product code "
-                . "{$productCode}. Qty: {$quantity}, "
-                . "QtyType: {$qtyType}, Qty per pack: {$qtyPerPack}."
+                "Unsupported QtyType for product code {$productCode}."
             );
         }
 
-        return (float) round($unitQuantity);
+        $unitQuantity += $looseUnitQuantity;
+
+        return (float) $unitQuantity;
     }
 
     private function normalizeQtyType(mixed $value): string

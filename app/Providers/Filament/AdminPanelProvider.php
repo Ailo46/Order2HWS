@@ -33,6 +33,8 @@ class AdminPanelProvider extends PanelProvider
 
             ->login()
 
+            ->sidebarWidth('14rem')
+
             /*
             |--------------------------------------------------------------------------
             | Branding
