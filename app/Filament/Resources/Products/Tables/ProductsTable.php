@@ -27,41 +27,26 @@ class ProductsTable
                     ->label('Image')
                     ->disk('public')
                     ->square()
-                    ->size(44)
-                    ->toggleable(),
-
-                TextColumn::make('code')
-                    ->label('Code')
-                    ->searchable()
-                    ->sortable()
-                    ->weight('bold')
-                    ->toggleable(),
-
-                TextColumn::make('brand.name')
-                    ->label('Brand')
-                    ->searchable()
-                    ->sortable()
-                    ->placeholder('—')
+                    ->size(56)
                     ->toggleable(),
 
                 TextColumn::make('name')
                     ->label('Product')
-                    ->searchable()
+                    ->state(
+                        fn (Product $record): string =>
+                            self::formatProductTitle($record)
+                    )
+                    ->description(
+                        fn (Product $record): string =>
+                            self::formatProductDescription($record)
+                    )
+                    ->searchable([
+                        'name',
+                        'code',
+                    ])
                     ->sortable()
                     ->wrap()
                     ->grow()
-                    ->toggleable(),
-
-                TextColumn::make('pack_size')
-                    ->label('Pack / Size')
-                    ->state(
-                        fn (Product $record): string =>
-                            self::formatPackSize($record)
-                    )
-                    ->tooltip(
-                        fn (Product $record): string =>
-                            self::formatPackSizeTooltip($record)
-                    )
                     ->toggleable(),
 
                 TextColumn::make('offer_display')
@@ -110,7 +95,7 @@ class ProductsTable
                     ->searchable()
                     ->sortable()
                     ->placeholder('—')
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->toggleable(),
 
                 TextColumn::make('stock_display')
                     ->label('Stock')
@@ -139,7 +124,7 @@ class ProductsTable
                 IconColumn::make('is_active')
                     ->label('Active')
                     ->boolean()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->toggleable(),
             ])
 
             ->reorderableColumns()
@@ -156,6 +141,33 @@ class ProductsTable
                     RestoreBulkAction::make(),
                 ]),
             ]);
+    }
+
+    private static function formatProductTitle(
+        Product $record
+    ): string {
+        $brand = trim(
+            (string) ($record->brand?->name ?? '')
+        );
+
+        $name = trim(
+            (string) ($record->name ?? '')
+        );
+
+        return trim("{$brand} {$name}");
+    }
+
+    private static function formatProductDescription(
+        Product $record
+    ): string {
+        $code = trim(
+            (string) ($record->code ?? '')
+        );
+
+        $sellingUnit = self::packUnitName($record);
+        $packSize = self::formatPackSize($record);
+
+        return "Code: {$code} • {$sellingUnit} | {$packSize}";
     }
 
     private static function formatPackSize(Product $record): string
