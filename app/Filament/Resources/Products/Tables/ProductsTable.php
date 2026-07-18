@@ -42,7 +42,7 @@ class ProductsTable
                     ->searchable()
                     ->sortable()
                     ->placeholder('—')
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->toggleable(),
 
                 TextColumn::make('name')
                     ->label('Product')
@@ -75,7 +75,7 @@ class ProductsTable
                         fn (string $state): string =>
                             self::offerColor($state)
                     )
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->toggleable(),
 
                 TextColumn::make('base_price')
                     ->label('Base Price')
@@ -139,7 +139,7 @@ class ProductsTable
                 IconColumn::make('is_active')
                     ->label('Active')
                     ->boolean()
-                    ->toggleable(),
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
 
             ->reorderableColumns()
