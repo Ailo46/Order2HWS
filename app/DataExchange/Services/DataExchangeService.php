@@ -4,10 +4,13 @@ namespace App\DataExchange\Services;
 
 use App\Exports\ProductsExport;
 use App\Imports\ProductsImport;
+use App\Models\Product;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Intervention\Image\Drivers\Gd\Driver;
+use Intervention\Image\ImageManager;
 use Maatwebsite\Excel\Facades\Excel;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -16,6 +19,12 @@ use ZipArchive;
 
 class DataExchangeService
 {
+    private const IMAGE_MAX_WIDTH = 1200;
+
+    private const IMAGE_MAX_HEIGHT = 1200;
+
+    private const WEBP_QUALITY = 82;
+
     /**
      * Import products from:
      *
@@ -82,6 +91,8 @@ class DataExchangeService
             [
                 'images_imported' => 0,
                 'images_replaced' => 0,
+                'images_optimised' => 0,
+                'image_paths_updated' => 0,
                 'image_warnings' => [],
                 'source_type' => 'excel',
             ]
@@ -117,7 +128,10 @@ class DataExchangeService
             );
         }
 
-        $extractedDirectory = $workingDirectory . DIRECTORY_SEPARATOR . 'extracted';
+        $extractedDirectory =
+            $workingDirectory
+            . DIRECTORY_SEPARATOR
+            . 'extracted';
 
         File::ensureDirectoryExists($extractedDirectory);
 
@@ -136,6 +150,12 @@ class DataExchangeService
             );
         }
 
+        /*
+         * Images are optimised before the spreadsheet is imported.
+         *
+         * A path map is retained so product image references can be
+         * changed from the original extension to .webp afterwards.
+         */
         $imageResult = $this->importImages(
             $extractedDirectory
         );
@@ -144,11 +164,17 @@ class DataExchangeService
 
         Excel::import($import, $spreadsheetPath);
 
+        $updatedImagePathCount = $this->syncProductImagePaths(
+            $imageResult['path_map']
+        );
+
         return array_merge(
             $import->summary(),
             [
                 'images_imported' => $imageResult['imported'],
                 'images_replaced' => $imageResult['replaced'],
+                'images_optimised' => $imageResult['optimised'],
+                'image_paths_updated' => $updatedImagePathCount,
                 'image_warnings' => $imageResult['warnings'],
                 'source_type' => 'zip',
             ]
@@ -293,8 +319,9 @@ class DataExchangeService
                 /*
                  * Prefer a spreadsheet named Products.
                  */
-                return strtolower($file->getFilenameWithoutExtension())
-                    === 'products'
+                return strtolower(
+                    $file->getFilenameWithoutExtension()
+                ) === 'products'
                     ? 0
                     : 1;
             })
@@ -310,15 +337,25 @@ class DataExchangeService
     }
 
     /**
-     * Copy supported product images into public storage.
+     * Optimise supported product images and store them as WebP.
      *
      * Images may be inside an "images" directory or elsewhere in
-     * the ZIP. Only the filename is used by ProductsImport.
+     * the ZIP.
+     *
+     * Processing:
+     *
+     * 1. Read with Intervention Image using the GD driver.
+     * 2. Apply EXIF orientation.
+     * 3. Scale down proportionally to a maximum of 1200 x 1200.
+     * 4. Encode as WebP at 82 percent quality.
+     * 5. Save into storage/app/public/products.
      *
      * @return array{
      *     imported: int,
      *     replaced: int,
-     *     warnings: array<int, string>
+     *     optimised: int,
+     *     warnings: array<int, string>,
+     *     path_map: array<string, string>
      * }
      */
     private function importImages(
@@ -333,10 +370,19 @@ class DataExchangeService
 
         $importedCount = 0;
         $replacedCount = 0;
+        $optimisedCount = 0;
         $warnings = [];
+        $pathMap = [];
 
         Storage::disk('public')->makeDirectory(
             'products'
+        );
+
+        /*
+         * Intervention Image v3 manager using PHP GD.
+         */
+        $imageManager = new ImageManager(
+            Driver::class
         );
 
         foreach (File::allFiles($directory) as $imageFile) {
@@ -354,64 +400,153 @@ class DataExchangeService
                 continue;
             }
 
-            $filename = $this->sanitizeImageFilename(
-                $imageFile->getFilename()
-            );
+            $originalFilename = $imageFile->getFilename();
 
-            if ($filename === null) {
+            $sanitizedOriginalFilename =
+                $this->sanitizeImageFilename(
+                    $originalFilename
+                );
+
+            if ($sanitizedOriginalFilename === null) {
                 $warnings[] =
                     'An image with an invalid filename was skipped.';
 
                 continue;
             }
 
-            $storagePath = 'products/' . $filename;
+            $filenameWithoutExtension = pathinfo(
+                $sanitizedOriginalFilename,
+                PATHINFO_FILENAME
+            );
+
+            $webpFilename =
+                $filenameWithoutExtension
+                . '.webp';
+
+            $storagePath =
+                'products/'
+                . $webpFilename;
 
             $alreadyExists = Storage::disk('public')
                 ->exists($storagePath);
 
-            $inputStream = fopen(
-                $imageFile->getRealPath(),
-                'rb'
-            );
-
-            if ($inputStream === false) {
-                $warnings[] =
-                    "Image could not be read: {$imageFile->getFilename()}";
-
-                continue;
-            }
-
             try {
+                $image = $imageManager->read(
+                    $imageFile->getRealPath()
+                );
+
+                /*
+                 * Intervention applies orientation automatically by
+                 * default. Calling orient() explicitly also makes the
+                 * intended behaviour clear and safe if configuration
+                 * changes later.
+                 */
+                $image->orient();
+
+                /*
+                 * Maintain the original aspect ratio and never enlarge
+                 * images that are already smaller than the limit.
+                 */
+                $image->scaleDown(
+                    width: self::IMAGE_MAX_WIDTH,
+                    height: self::IMAGE_MAX_HEIGHT
+                );
+
+                $encodedImage = $image->toWebp(
+                    self::WEBP_QUALITY
+                );
+
                 $stored = Storage::disk('public')->put(
                     $storagePath,
-                    $inputStream
+                    (string) $encodedImage
                 );
             } catch (Throwable $exception) {
                 $stored = false;
 
                 $warnings[] =
-                    "Image could not be stored: {$imageFile->getFilename()}";
-            } finally {
-                fclose($inputStream);
+                    "Image could not be optimised: "
+                    . $originalFilename
+                    . '. '
+                    . $exception->getMessage();
             }
 
             if (! $stored) {
                 continue;
             }
 
+            $optimisedCount++;
+
             if ($alreadyExists) {
                 $replacedCount++;
             } else {
                 $importedCount++;
+            }
+
+            /*
+             * ProductsImport initially reads the original filename
+             * from Excel. These mappings allow us to update the product
+             * record after spreadsheet import.
+             */
+            $pathMap[
+                'products/' . $originalFilename
+            ] = $storagePath;
+
+            $pathMap[
+                'products/' . $sanitizedOriginalFilename
+            ] = $storagePath;
+
+            /*
+             * Remove an old unoptimised copy only after the new WebP
+             * image has been stored successfully.
+             */
+            $oldStoragePath =
+                'products/'
+                . $sanitizedOriginalFilename;
+
+            if (
+                $oldStoragePath !== $storagePath
+                && Storage::disk('public')->exists(
+                    $oldStoragePath
+                )
+            ) {
+                Storage::disk('public')->delete(
+                    $oldStoragePath
+                );
             }
         }
 
         return [
             'imported' => $importedCount,
             'replaced' => $replacedCount,
+            'optimised' => $optimisedCount,
             'warnings' => $warnings,
+            'path_map' => $pathMap,
         ];
+    }
+
+    /**
+     * Replace spreadsheet image paths with the generated WebP paths.
+     *
+     * @param array<string, string> $pathMap
+     */
+    private function syncProductImagePaths(
+        array $pathMap
+    ): int {
+        $updatedCount = 0;
+
+        foreach ($pathMap as $originalPath => $webpPath) {
+            if ($originalPath === $webpPath) {
+                continue;
+            }
+
+            $updatedCount += Product::withTrashed()
+                ->where('image', $originalPath)
+                ->update([
+                    'image' => $webpPath,
+                ]);
+        }
+
+        return $updatedCount;
     }
 
     private function sanitizeImageFilename(

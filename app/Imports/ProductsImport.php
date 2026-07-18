@@ -170,12 +170,16 @@ class ProductsImport implements ToCollection, WithHeadingRow, SkipsEmptyRows
                 $this->readValue(
                     $row,
                     ['size', 'packsize', 'packaging']
-                )
+                ),
+                $code,
+                $excelRowNumber
             );
 
             $sellingUnit = $this->findOrCreateReference(
                 Unit::class,
-                'Box',
+                $packaging['stock_mode'] === 'bulk_weight'
+                    ? 'Kilogram'
+                    : 'Box',
                 'UNIT'
             );
 
@@ -193,7 +197,7 @@ class ProductsImport implements ToCollection, WithHeadingRow, SkipsEmptyRows
                 $this->readValue($row, ['price', 'baseprice'])
             );
 
-            if ($price === null) {
+            if ($price === null || $price < 0) {
                 throw new RuntimeException(
                     "Price is missing or invalid for product code {$code}."
                 );
@@ -202,10 +206,20 @@ class ProductsImport implements ToCollection, WithHeadingRow, SkipsEmptyRows
             /*
              * QtyType is optional.
              *
-             * Missing QtyType defaults to Unit because the current
-             * Order2HWS import sheet stores stock as individual units.
+             * The real warehouse spreadsheet stores Qty as the number
+             * of packs, including decimal pack quantities.
              *
-             * Supported values:
+             * Examples:
+             *
+             * Size: 12X330ML
+             * Qty: 186.4166666667
+             * Result: 2237 saleable units
+             *
+             * Size: 1X1KG
+             * Qty: 1998.5
+             * Result: 1998.500 kilograms
+             *
+             * Supported explicit values:
              * Unit
              * Pack
              */
@@ -242,6 +256,7 @@ class ProductsImport implements ToCollection, WithHeadingRow, SkipsEmptyRows
                 qtyType: $qtyType,
                 qtyPerPack: $packaging['qty_per_pack'],
                 looseUnitQuantity: $looseUnitQuantity,
+                stockMode: $packaging['stock_mode'],
                 productCode: $code,
                 excelRowNumber: $excelRowNumber,
             );
@@ -299,19 +314,58 @@ class ProductsImport implements ToCollection, WithHeadingRow, SkipsEmptyRows
     }
 
     /**
-     * Convert the imported quantity into the smallest saleable unit.
+     * Convert imported stock into the storage quantity used by Order2HWS.
+     *
+     * Packaged products are stored as the number of smallest saleable
+     * units.
+     *
+     * Bulk 1X1KG products are stored as decimal kilograms.
      */
     private function calculateStockQuantity(
         float $quantity,
         string $qtyType,
         int $qtyPerPack,
         int $looseUnitQuantity,
+        string $stockMode,
         string $productCode,
         int $excelRowNumber
-    ): int {
+    ): float {
+        /*
+         * Bulk products expressed as 1X1KG may contain a decimal
+         * kilogram quantity.
+         *
+         * Example:
+         * 1998.500 KG = 1998 KG and 500 grams.
+         */
+        if ($stockMode === 'bulk_weight') {
+            if ($qtyType === 'unit') {
+                $stockQuantity = $quantity;
+            } elseif ($qtyType === 'pack') {
+                $stockQuantity = $quantity * $qtyPerPack;
+            } else {
+                throw new RuntimeException(
+                    "Unsupported QtyType for product code {$productCode}."
+                );
+            }
+
+            if ($looseUnitQuantity > 0) {
+                throw new RuntimeException(
+                    "UnitQty cannot be used for bulk weight product "
+                    . "{$productCode} on Excel row {$excelRowNumber}."
+                );
+            }
+
+            return round($stockQuantity, 3);
+        }
+
+        /*
+         * Packaged and individual products must result in a whole
+         * number of smallest saleable units.
+         */
         $unitQuantity = match ($qtyType) {
             'unit' => $quantity,
             'pack' => $quantity * $qtyPerPack,
+
             default => throw new RuntimeException(
                 "Unsupported QtyType for product code {$productCode}."
             ),
@@ -320,25 +374,25 @@ class ProductsImport implements ToCollection, WithHeadingRow, SkipsEmptyRows
         $unitQuantity += $looseUnitQuantity;
 
         /*
-         * Physical stock cannot contain a fraction of the smallest
-         * saleable unit.
+         * Floating-point values from Excel may contain very small
+         * precision differences.
          *
          * Valid:
-         * 5.5 packs × 12 = 66 units
+         * 186.4166666667 packs × 12 = 2237 units
          *
          * Invalid:
-         * 5.55 packs × 12 = 66.6 units
+         * A quantity that genuinely produces 2237.4 units
          */
         if (! $this->isWholeNumber($unitQuantity)) {
             throw new RuntimeException(
                 "Qty on Excel row {$excelRowNumber} produces "
-                . "a fractional unit for product code {$productCode}. "
-                . "Qty: {$quantity}, QtyType: {$qtyType}, "
-                . "Qty per pack: {$qtyPerPack}."
+                . "a fractional saleable unit for product code "
+                . "{$productCode}. Qty: {$quantity}, "
+                . "QtyType: {$qtyType}, Qty per pack: {$qtyPerPack}."
             );
         }
 
-        return (int) round($unitQuantity);
+        return (float) round($unitQuantity);
     }
 
     private function normalizeQtyType(mixed $value): string
@@ -346,22 +400,27 @@ class ProductsImport implements ToCollection, WithHeadingRow, SkipsEmptyRows
         $qtyType = $this->cleanText($value);
 
         /*
-         * Current sample spreadsheets use Qty as units.
+         * The production warehouse spreadsheet stores Qty as packs.
          */
         if ($qtyType === null) {
-            return 'unit';
+            return 'pack';
         }
 
         $normalized = strtoupper(
-            preg_replace('/[^A-Z0-9]/', '', strtoupper($qtyType)) ?? ''
+            preg_replace(
+                '/[^A-Z0-9]/',
+                '',
+                strtoupper($qtyType)
+            ) ?? ''
         );
 
         return match ($normalized) {
-            'UNIT', 'UNITS', 'EACH', 'EACHES', 'PIECE', 'PIECES',
-            'PC', 'PCS', 'SINGLE', 'SINGLES' => 'unit',
+            'UNIT', 'UNITS', 'EACH', 'EACHES',
+            'PIECE', 'PIECES', 'PC', 'PCS',
+            'SINGLE', 'SINGLES' => 'unit',
 
-            'PACK', 'PACKS', 'BOX', 'BOXES', 'CASE', 'CASES',
-            'CARTON', 'CARTONS' => 'pack',
+            'PACK', 'PACKS', 'BOX', 'BOXES',
+            'CASE', 'CASES', 'CARTON', 'CARTONS' => 'pack',
 
             default => throw new RuntimeException(
                 "QtyType '{$qtyType}' is not supported. "
@@ -491,31 +550,97 @@ class ProductsImport implements ToCollection, WithHeadingRow, SkipsEmptyRows
 
     private function isWholeNumber(float $number): bool
     {
-        return abs($number - round($number)) < 0.000001;
+        /*
+         * Excel frequently stores repeating fractions with a small
+         * floating-point difference.
+         */
+        return abs($number - round($number)) < 0.00001;
     }
 
     /**
-     * Parse values such as:
+     * Parse packaging values such as:
      *
      * 12X700GR
      * 6 x 1 KG
      * 24×330ML
      * 500G
+     * 1X1UNIT
+     * 8X10X60G
+     *
+     * Nested packaging example:
+     *
+     * 8X10X60G means:
+     * - 8 saleable units in the outer pack
+     * - each saleable unit contains 10 pieces
+     * - each inner piece weighs 60 grams
+     * - each saleable unit therefore has a size of 600 grams
      *
      * @return array{
      *     qty_per_pack: int,
      *     size: float,
-     *     size_unit_name: string
+     *     size_unit_name: string,
+     *     stock_mode: string
      * }
      */
-    private function parsePackaging(mixed $value): array
-    {
+    private function parsePackaging(
+        mixed $value,
+        string $productCode,
+        int $excelRowNumber
+    ): array {
         $rawValue = strtoupper(
             preg_replace('/\s+/', '', (string) $value) ?? ''
         );
 
         $rawValue = str_replace(',', '.', $rawValue);
 
+        if ($rawValue === '') {
+            throw new RuntimeException(
+                "Size is missing for product code {$productCode} "
+                . "on Excel row {$excelRowNumber}."
+            );
+        }
+
+        /*
+         * Nested packaging:
+         *
+         * Example: 8X10X60G
+         *
+         * qty_per_pack = 8
+         * size per saleable unit = 10 × 60 = 600 grams
+         */
+        if (
+            preg_match(
+                '/^(\d+)[X×](\d+)[X×](\d+(?:\.\d+)?)([A-Z]+)$/u',
+                $rawValue,
+                $matches
+            ) === 1
+        ) {
+            $outerPackQuantity = max(1, (int) $matches[1]);
+            $innerPieceQuantity = max(1, (int) $matches[2]);
+            $innerPieceSize = (float) $matches[3];
+            $sizeUnitName = $this->normalizeSizeUnitName(
+                $matches[4]
+            );
+
+            return [
+                'qty_per_pack' => $outerPackQuantity,
+                'size' => round(
+                    $innerPieceQuantity * $innerPieceSize,
+                    3
+                ),
+                'size_unit_name' => $sizeUnitName,
+                'stock_mode' => 'packaged',
+            ];
+        }
+
+        /*
+         * Standard outer-pack packaging.
+         *
+         * Examples:
+         * 12X700GR
+         * 6X1KG
+         * 1X1UNIT
+         */
         if (
             preg_match(
                 '/^(\d+)[X×](\d+(?:\.\d+)?)([A-Z]+)$/u',
@@ -523,15 +648,33 @@ class ProductsImport implements ToCollection, WithHeadingRow, SkipsEmptyRows
                 $matches
             ) === 1
         ) {
+            $qtyPerPack = max(1, (int) $matches[1]);
+            $size = (float) $matches[2];
+            $sizeUnitName = $this->normalizeSizeUnitName(
+                $matches[3]
+            );
+
+            $stockMode = $this->determineStockMode(
+                qtyPerPack: $qtyPerPack,
+                size: $size,
+                sizeUnitName: $sizeUnitName
+            );
+
             return [
-                'qty_per_pack' => max(1, (int) $matches[1]),
-                'size' => (float) $matches[2],
-                'size_unit_name' => $this->normalizeSizeUnitName(
-                    $matches[3]
-                ),
+                'qty_per_pack' => $qtyPerPack,
+                'size' => $size,
+                'size_unit_name' => $sizeUnitName,
+                'stock_mode' => $stockMode,
             ];
         }
 
+        /*
+         * Single-size value without an explicit outer pack.
+         *
+         * Examples:
+         * 500G
+         * 1KG
+         */
         if (
             preg_match(
                 '/^(\d+(?:\.\d+)?)([A-Z]+)$/u',
@@ -539,20 +682,49 @@ class ProductsImport implements ToCollection, WithHeadingRow, SkipsEmptyRows
                 $matches
             ) === 1
         ) {
+            $size = (float) $matches[1];
+            $sizeUnitName = $this->normalizeSizeUnitName(
+                $matches[2]
+            );
+
             return [
                 'qty_per_pack' => 1,
-                'size' => (float) $matches[1],
-                'size_unit_name' => $this->normalizeSizeUnitName(
-                    $matches[2]
+                'size' => $size,
+                'size_unit_name' => $sizeUnitName,
+                'stock_mode' => $this->determineStockMode(
+                    qtyPerPack: 1,
+                    size: $size,
+                    sizeUnitName: $sizeUnitName
                 ),
             ];
         }
 
-        return [
-            'qty_per_pack' => 1,
-            'size' => 1,
-            'size_unit_name' => 'Piece',
-        ];
+        throw new RuntimeException(
+            "Size '{$rawValue}' is not supported for product code "
+            . "{$productCode} on Excel row {$excelRowNumber}."
+        );
+    }
+
+    /**
+     * Detect whether stock may be stored as a decimal quantity.
+     *
+     * The production spreadsheet identifies bulk weight stock as
+     * exactly 1X1KG.
+     */
+    private function determineStockMode(
+        int $qtyPerPack,
+        float $size,
+        string $sizeUnitName
+    ): string {
+        if (
+            $qtyPerPack === 1
+            && abs($size - 1.0) < 0.000001
+            && $this->sizeUnitKey($sizeUnitName) === 'KG'
+        ) {
+            return 'bulk_weight';
+        }
+
+        return 'packaged';
     }
 
     private function normalizeSizeUnitName(string $unit): string
@@ -563,7 +735,10 @@ class ProductsImport implements ToCollection, WithHeadingRow, SkipsEmptyRows
             'ML' => 'Millilitre',
             'L' => 'Litre',
             'PCS' => 'Piece',
-            default => Str::title(strtolower(trim($unit))),
+
+            default => Str::title(
+                strtolower(trim($unit))
+            ),
         };
     }
 
