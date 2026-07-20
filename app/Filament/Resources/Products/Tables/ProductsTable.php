@@ -14,13 +14,22 @@ use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Support\Str;
+use App\Models\Brand;
 
 class ProductsTable
 {
     public static function configure(Table $table): Table
     {
         return $table
-            ->defaultSort('name')
+            ->defaultSort(
+                fn ($query) => $query
+                    ->orderBy(
+                        Brand::query()
+                            ->select('name')
+                            ->whereColumn('brands.id', 'products.brand_id')
+                    )
+                    ->orderBy('products.name')
+            )
 
             ->columns([
                 ImageColumn::make('image')
@@ -40,10 +49,24 @@ class ProductsTable
                         fn (Product $record): string =>
                             self::formatProductDescription($record)
                     )
-                    ->searchable([
-                        'name',
-                        'code',
-                    ])
+                    ->searchable(
+                        query: function ($query, string $search) {
+                            return $query->where(function ($query) use ($search) {
+                                $query
+                                    ->where('products.name', 'like', "%{$search}%")
+                                    ->orWhere('products.code', 'like', "%{$search}%")
+                                    ->orWhereHas(
+                                        'brand',
+                                        fn ($brandQuery) =>
+                                            $brandQuery->where(
+                                                'name',
+                                                'like',
+                                                "%{$search}%"
+                                            )
+                                    );
+                            });
+                        }
+                    )
                     ->sortable()
                     ->wrap()
                     ->grow()
