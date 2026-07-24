@@ -15,6 +15,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Support\Str;
 use App\Models\Brand;
+use App\Models\Category;
 
 class ProductsTable
 {
@@ -27,6 +28,11 @@ class ProductsTable
                         Brand::query()
                             ->select('name')
                             ->whereColumn('brands.id', 'products.brand_id')
+                    )
+                    ->orderBy(
+                        Category::query()
+                            ->select('name')
+                            ->whereColumn('categories.id', 'products.category_id')
                     )
                     ->orderBy('products.name')
             )
